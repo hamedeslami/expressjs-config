@@ -27,7 +27,7 @@ class AuthServices {
                 }
                 const token = this.#createToken(payload);
                 if (token) {
-                    const refreshToken = await this.#createRefreshToken(payload, user.uuid);
+                    const refreshToken = await this.#createRefreshToken(payload);
                     return {
                         ...payload,
                         accessToken: token,
@@ -90,7 +90,7 @@ class AuthServices {
         throw new createHttpError.InternalServerError(AuthMessage.tokenField);
     }
 
-    async #createRefreshToken(payload, userId){
+    async #createRefreshToken(payload){
         const PrivateKey = process.env.API_REFRESH_PRIVATE_KEY;
         const options = {
             expiresIn: 60 * 60
@@ -99,62 +99,35 @@ class AuthServices {
 
 
         const refreshToken = jwt.sign(payload, PrivateKey, options);
-        if(refreshToken) {
-            await redis.setEx(userId, 60 * 60, refreshToken);
-            return refreshToken;
-        }
+        if(refreshToken) return refreshToken;
         throw new createHttpError.InternalServerError(AuthMessage.refreshTokenField);
     }
 
-    async verifyRefreshToken(refreshToken, token) {
-        try {
-            const PrivateRefreshKey = process.env.API_REFRESH_PRIVATE_KEY;
-            if(!PrivateRefreshKey) throw new createHttpError.InternalServerError(AuthMessage.privateKeyNotSet);
+    async verifyRefreshToken(refreshToken) {
+        const PrivateRefreshKey = process.env.API_REFRESH_PRIVATE_KEY;
+        if(!PrivateRefreshKey) throw new createHttpError.InternalServerError(AuthMessage.privateKeyNotSet);
 
-            const PrivateTokenKey = process.env.API_PRIVATE_KEY;
-            if(!PrivateTokenKey) throw new createHttpError.InternalServerError(AuthMessage.privateKeyNotSet);
+        const payload = jwt.verify(refreshToken, PrivateRefreshKey);            
+        if(payload && typeof payload === 'object' && 'mobile' in payload){
+            const user = await this.#model.findOne({ where: { mobile: payload.mobile }, raw: true });
+            if(!user) throw new createHttpError.Unauthorized(AuthMessage.userNotFound);
 
-            const parts = token.split(' ');
+            const data = {
+                firstname: user.firstname,
+                lastname: user.lastname,
+                mobile: user.mobile
+            };
 
-            if (parts.length !== 2 || !/^Bearer$/i.test(parts[0])) {
-                return next(createHttpError.Unauthorized('Token not valid! 1'));
+            const newToken = this.#createToken(data);
+            if(newToken) {
+                return {
+                    accessToken: newToken,
+                    type: "Bearer",
+                    expiresIn: 600,
+                };
             }
-
-            const credentials = parts[1];
-
-            const tokenDecode = jwt.decode(credentials, PrivateTokenKey);
-            if(!tokenDecode) throw new createHttpError.InternalServerError("token decode not valid");
-
-            const payload = jwt.verify(refreshToken, PrivateRefreshKey);            
-            if(payload && typeof payload === 'object' && 'mobile' in payload){
-                if(tokenDecode.mobile !== payload.mobile) throw new createHttpError.InternalServerError("token and refresh token not for same user");
-
-                const user = await this.#model.findOne({ where: { mobile: payload.mobile }, raw: true });
-                if(!user) throw new createHttpError.Unauthorized(AuthMessage.userNotFound);
-
-                const userRefreshToken = await redis.get(user.uuid);
-                if(refreshToken === userRefreshToken) {
-                    const data = {
-                        firstname: user.firstname,
-                        lastname: user.lastname,
-                        mobile: user.mobile
-                    };
-
-                    const newToken = this.#createToken(data);
-                    if(newToken) {
-                        return {
-                            accessToken: newToken,
-                            type: "Bearer",
-                            expiresIn: 600,
-                        };
-                    }
-                }
-            }
-            throw new createHttpError.Unauthorized(AuthMessage.tokenField);
-        } catch (error) {
-            throw new createHttpError.Unauthorized(error.message);
         }
-        
+        throw new createHttpError.Unauthorized(AuthMessage.refreshTokenField);
     }
 }
 

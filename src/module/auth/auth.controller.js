@@ -73,18 +73,14 @@ class AuthController {
         });
       }
 
-
-      const token = req.headers.authorization;
       const refreshToken = req.body.refreshToken;
 
-      const result = await this.#service.verifyRefreshToken(
-        refreshToken, token
-      );
+      const result = await this.#service.verifyRefreshToken(refreshToken);
 
       if (result) {
         res.status(200).json({
           statusCode: 200,
-          message: '',
+          message: AuthMessage.createRefreshTokenSuccess,
           data: result,
         });
       }

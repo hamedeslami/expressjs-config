@@ -9,7 +9,7 @@ router.post('/login', LoginValidator(), (req, res, next) => {
     AuthController.login(req, res, next)
 });
 
-router.post('/refresh-token', (req, res, next) => {
+router.post('/refresh-token', RefreshValidator(), (req, res, next) => {
     AuthController.refreshToken(req, res, next)
 });
 
